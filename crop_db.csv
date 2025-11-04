@@ -1,0 +1,31 @@
+name,season,min_rain,max_rain,notes
+Rice,Kharif,150,1000,Staple; prefers flooded conditions during growth
+Maize,Kharif,50,300,Versatile cereal crop
+Soybean,Kharif,60,250,Legume; improves soil nitrogen
+Cotton,Kharif,50,150,Requires moderate rainfall and warm temperatures
+Bajra,Kharif,30,100,Drought-resistant millet
+Groundnut,Kharif,50,200,Nitrogen-fixing legume
+Pigeonpea,Kharif,60,200,Perennial pulse crop
+Sorghum,Kharif,30,100,Drought-tolerant cereal
+Urd,Kharif,40,120,Pulse crop
+Moong,Kharif,40,120,Short-duration pulse
+Wheat,Rabi,20,100,Main rabi cereal
+Barley,Rabi,20,80,Cold-tolerant cereal
+Gram,Rabi,20,80,Pulse crop
+Mustard,Rabi,20,80,Oilseed
+Peas,Rabi,30,100,Cool-season vegetable/pulse
+Lentil,Rabi,20,80,Pulse, short-season
+Oats,Rabi,20,80,Used as fodder and cereal
+Sugarcane,Other,100,2000,Perennial, water-intensive
+Jute,Other,150,2000,Fibre crop, needs high moisture
+Millet,Other,20,80,Small-grain cereal tolerant to drought
+Sunflower,Other,30,120,Oilseed crop
+Sesame,Other,30,120,Oilseed tolerant to low moisture
+Potato,Other,40,200,Vegetable; irrigation-responsive
+Tomato,Other,30,200,Vegetable; irrigation often required
+Onion,Other,20,150,Vegetable
+Banana,Other,200,2500,Fruit crop; high water requirement
+Mango,Other,50,1500,Perennial fruit tree
+Tea,Other,150,2500,Perennial plantation crop
+Apple,Other,50,2000,Temperate fruit (site-specific)
+Vegetables,Other,30,500,Generic vegetable group

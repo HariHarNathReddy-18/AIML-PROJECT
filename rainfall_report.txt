@@ -1,0 +1,6 @@
+Rainfall Prediction & Crop Recommendation
+Location: Latitude 17.384, Longitude 78.4564
+Average monthly rainfall: 67.84 mm
+Forecasted total rainfall (next 12 months): 699.00 mm
+Crop Recommendation: Maize, Cotton, Groundnut
+Moderate rainfall crops recommended.

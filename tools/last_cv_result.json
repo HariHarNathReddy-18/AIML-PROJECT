@@ -1,0 +1,44 @@
+{
+  "SARIMA": {
+    "rmse": 92.92740091631127,
+    "mae": 87.22833983160004,
+    "details": [
+      {
+        "rmse": 51.37216309313026,
+        "mae": 45.88774659231087
+      },
+      {
+        "rmse": 134.48263873949227,
+        "mae": 128.56893307088922
+      }
+    ]
+  },
+  "Prophet": {
+    "rmse": null,
+    "mae": null,
+    "details": [
+      {
+        "rmse": null,
+        "mae": null
+      },
+      {
+        "rmse": null,
+        "mae": null
+      }
+    ]
+  },
+  "AutoARIMA": {
+    "rmse": null,
+    "mae": null,
+    "details": [
+      {
+        "rmse": null,
+        "mae": null
+      },
+      {
+        "rmse": null,
+        "mae": null
+      }
+    ]
+  }
+}
