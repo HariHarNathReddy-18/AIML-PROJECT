@@ -147,14 +147,24 @@ season = st.sidebar.selectbox("Cropping Season", ["Kharif", "Rabi", "None"])
 st.sidebar.caption("This helps filter the crop database for relevant results.")
 season = None if season == "None" else season
 
-
 # Additional controls for forecasts & visuals
-forecast_horizon = st.sidebar.slider("Forecast horizon (months)", min_value=3, max_value=60, value=12, step=1)
-rolling_window = st.sidebar.slider("Rolling mean window (months)", min_value=3, max_value=24, value=12, step=1)
-show_ci = st.sidebar.checkbox("Show forecast 95% CI", value=True)
-enable_caching = st.sidebar.checkbox("Enable model caching (session)", value=True)
-# Advanced UI toggle: hide complex controls by default for a simpler interface
+st.sidebar.markdown("---") # Add a separator
 advanced = st.sidebar.checkbox("Show advanced options", value=False)
+
+# --- HIDE THESE BY DEFAULT ---
+if advanced:
+    st.sidebar.subheader("Advanced Forecast Settings")
+    forecast_horizon = st.sidebar.slider("Forecast horizon (months)", min_value=3, max_value=60, value=12, step=1)
+    rolling_window = st.sidebar.slider("Rolling mean window (months)", min_value=3, max_value=24, value=12, step=1)
+    show_ci = st.sidebar.checkbox("Show forecast 95% CI", value=True)
+    enable_caching = st.sidebar.checkbox("Enable model caching (session)", value=True)
+else:
+    # Set default values silently if 'advanced' is not checked
+    forecast_horizon = 12
+    rolling_window = 12
+    show_ci = True
+    enable_caching = True
+
 
 def _series_hash(s: pd.Series) -> str:
     try:
@@ -550,6 +560,75 @@ with tab_home:
     st.info("You can also explore the **'Rainfall Analysis'** tab to see the historical rainfall patterns for your location.")
     
 # --- END OF HOME TAB REPLACEMENT ---
+
+# --- 1. ADD THIS ENTIRE BLOCK FOR THE CROP TAB ---
+with tab_crop:
+    st.header("Crop Recommendations 🌾")
+
+    # Check if the forecast has been run
+    if not st.session_state.get('forecast_run_complete', False):
+        st.info("Please go to the 'Forecast' tab and click 'Run Prediction' to generate recommendations.")
+    else:
+        # Load the results from the session state
+        pred_mean = st.session_state.get('pred_mean')
+        season = st.session_state.get('season')
+        
+        if pred_mean is not None:
+            future_sum = pred_mean.sum()
+            # Get recommendation from your existing function
+            crop, crop_msg = recommend_crop(future_sum, season) 
+            
+            st.subheader("Overall Recommendation")
+            st.success(f"**Recommended Crops:** {crop}")
+            st.info(f"**Reasoning:** {crop_msg}")
+            st.write(f"**Forecasted Total Rainfall (next {len(pred_mean)} months):** {future_sum:.2f} mm")
+
+            st.subheader("Month-by-Month Crop Suitability")
+            st.markdown("This table shows which crops are suitable based on the predicted rainfall for *each specific month*.")
+            # Get month-wise recommendations
+            month_crops_df = month_wise_crop_recommendation(pred_mean, season) 
+            st.dataframe(month_crops_df)
+        else:
+            st.error("An error occurred. Please re-run the forecast.")
+# --- END OF CROP TAB BLOCK ---
+
+
+# --- 2. ADD THIS ENTIRE BLOCK FOR THE ALERTS TAB ---
+with tab_alerts:
+    st.header("Forecast Alerts ⚠️")
+
+    if not st.session_state.get('forecast_run_complete', False):
+        st.info("Please go to the 'Forecast' tab and click 'Run Prediction' to check for alerts.")
+    else:
+        pred_mean = st.session_state.get('pred_mean')
+        conf_int = st.session_state.get('conf_int')
+        
+        if pred_mean is not None and conf_int is not None:
+            # Get the forecast for the next 3 months
+            forecast_period = pred_mean.head(3)
+            ci_period = conf_int.head(3)
+            
+            # --- Simple Alert Logic ---
+            alerts_found = 0
+            
+            # 1. Potential Drought Check
+            lower_bound_low = ci_period.iloc[:, 0] < 15 # Check for < 15mm rain
+            if lower_bound_low.all(): # If all 3 months are potentially very dry
+                st.warning("**Potential Drought Alert:** The forecast model's 95% confidence interval suggests a high probability of significantly below-average rainfall (less than 15mm/month) for the next 3 months. Monitor conditions closely.")
+                alerts_found += 1
+
+            # 2. Potential Flood/High-Rain Check
+            upper_bound_high = ci_period.iloc[:, 1] > 400 # Check for > 400mm rain
+            if upper_bound_high.any(): # If *any* of the next 3 months could be extremely wet
+                st.error("**Potential High-Rainfall Alert:** The forecast model's 95% confidence interval includes the possibility of extreme rainfall (>400mm) in at least one of the next 3 months. Ensure proper drainage and flood preparedness.")
+                alerts_found += 1
+            
+            # 3. No Alerts
+            if alerts_found == 0:
+                st.success("✅ **All Clear:** No immediate extreme weather alerts based on the forecast model. Conditions appear stable.")
+# --- END OF ALERTS TAB BLOCK ---
+
+
 with tab_analysis:
     st.header("Rainfall Analysis")
     st.write("Use this tab to visualize monthly and yearly rainfall summaries.")
@@ -1008,94 +1087,6 @@ with tab_forecast:
     run_clicked = st.button("Run Prediction")
     st.info("This may take a moment. We're fetching data and training an AI model for your specific location.") # <-- ADDED THIS
 
-
-    # --- (Your existing code for 'replay_clicked' and 'run_cv' stays here) ---
-    # ...
-    # ... (This assumes your replay_clicked and run_cv logic is here)
-    # ...
-
-    if run_clicked:
-        with st.spinner("Fetching and processing data..."):
-            today = end_date.strftime("%Y-%m-%d")
-            df = fetch_rainfall(lat=lat, lon=lon, start=start_date.strftime("%Y-%m-%d"), end=today)
-            df.to_csv("rainfall_data.csv")
-            monthly = preprocess("rainfall_data.csv")
-            # ... (Your existing 'compare' logic stays here) ...
-
-        # ... (Your existing EDA plot 'fig1' logic stays here) ...
-        # ... st.plotly_chart(fig1, use_container_width=True) ...
-
-        # SARIMA Forecast
-        train = monthly.iloc[:-12]
-        test = monthly.iloc[-12:]
-        
-        # ... (Your existing 'auto_select' logic stays here) ...
-        
-        # ... (Your existing 'sarima_override' logic stays here) ...
-        
-        # ... (Your existing SARIMA fitting logic stays here to define 'result') ...
-        
-        forecast = result.get_forecast(steps=forecast_horizon)
-        pred_mean = forecast.predicted_mean.clip(lower=0)
-        conf_int = forecast.conf_int()
-        conf_int.iloc[:,0] = conf_int.iloc[:,0].clip(lower=0)
-        conf_int.iloc[:,1] = conf_int.iloc[:,1].clip(lower=0)
-
-        # ... (Your existing 'fig2' SARIMA plot logic stays here) ...
-        # ... st.plotly_chart(fig2, use_container_width=True) ...
-        
-        # ... (Your existing 'st.session_state['last_forecast']' logic stays here) ...
-
-        results = []
-        # Evaluate SARIMA
-        if "SARIMA" in model_choice:
-            # ... (Your existing SARIMA evaluation logic) ...
-            results.append({"model": "SARIMA", "rmse": rmse_s, "mae": mae_s})
-
-        # Prophet forecast
-        if "Prophet" in model_choice:
-            # ... (Your existing Prophet logic, fig_p, and evaluation) ...
-            results.append({"model": "Prophet", "rmse": rmse_p, "mae": mae_p})
-
-        if results:
-            res_df = pd.DataFrame(results).set_index('model')
-            st.subheader("Model comparison (lower is better)")
-            st.table(res_df)
-
-            # --- ! NEW CHANGE: SAVE RESULTS TO SESSION STATE ! ---
-            st.session_state['pred_mean'] = pred_mean
-            st.session_state['conf_int'] = conf_int
-            st.session_state['season'] = season # Save the season selected in the sidebar
-            st.session_state['forecast_run_complete'] = True
-            # --- ! END OF NEW CHANGE ! ---
-
-        # ... (Your existing 'seasonal_results' logic can stay here if you want it) ...
-        # ... (e.g., st.subheader("Seasonal forecasts"), st.table(sres_df), etc.) ...
-        
-        # --- ! CHANGE: DELETE THE OLD RECOMMENDATION BLOCK ! ---
-        # (The code that started with 'avg = monthly["rainfall"].mean()'
-        # and showed 'st.success(f"Crop Recommendation: {crop}")'
-        # and 'st.dataframe(month_crops_df)' should be DELETED from here.)
-        # --- ! END OF DELETION ! ---
-
-    else:
-        st.info("Set location and season in the sidebar, then click 'Run Prediction'.")
-
-    # --- LEAVE THE REST OF THE TAB (replay_clicked, etc.) AS IT IS ---
-    # Optional SARIMA grid-search (no extra dependencies)
-    use_sarima_grid = st.checkbox('Use SARIMA grid-search (no pmdarima required)', value=False)
-    if use_sarima_grid:
-        p_max = st.slider('Max p', min_value=0, max_value=3, value=2)
-        q_max = st.slider('Max q', min_value=0, max_value=3, value=2)
-        P_max = st.slider('Max P (seasonal)', min_value=0, max_value=2, value=1)
-
-    # Cross-validation controls
-    st.markdown('**Model cross-validation (rolling-origin)**')
-    cv_horizon = st.number_input('CV horizon (months per fold)', min_value=1, max_value=24, value=3)
-    cv_folds = st.number_input('CV folds', min_value=1, max_value=6, value=3)
-    run_cv = st.button('Run CV & Compare Models')
-
-    
     replay_clicked = st.button("Replay last forecast")
 
     # Shortcut: load targeted SARIMA CV results (two-stage fast run) and allow user to apply best order
@@ -1180,6 +1171,7 @@ with tab_forecast:
                 pass
     except Exception:
         pass
+    
     if replay_clicked:
         # re-render from cache if present
         last = st.session_state.get('last_forecast')
@@ -1219,6 +1211,7 @@ with tab_forecast:
             fig2.update_layout(title='SARIMA Forecast vs Actuals [Cached]', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, max(train_vals.max() if len(train_vals)>0 else 0, test_vals.max() if len(test_vals)>0 else 0, pred_mean.max() if len(pred_mean)>0 else 0) * 1.15], gridcolor='LightGray'))
             st.plotly_chart(fig2, use_container_width=True)
         # skip the normal run branch
+        
     if run_cv:
         # run rolling-origin CV on the available monthly series
         with st.spinner('Running cross-validation (this may take a while)...'):
@@ -1256,6 +1249,7 @@ with tab_forecast:
                     st.session_state['last_cv_details'] = df_details.to_dict(orient='records')
             except Exception:
                 pass
+                
     if run_clicked:
         with st.spinner("Fetching and processing data..."):
             today = end_date.strftime("%Y-%m-%d")
@@ -1272,309 +1266,271 @@ with tab_forecast:
                 except Exception:
                     globals()['monthly2'] = None
 
-    # EDA plot (interactive with Plotly)
-    series_all = monthly["rainfall"].clip(lower=0)
-    rolling_all = series_all.rolling(window=rolling_window, min_periods=1).mean()
-    y_max_all = max(series_all.max() if len(series_all)>0 else 0, rolling_all.max() if len(rolling_all)>0 else 0) * 1.15
-    fig1 = go.Figure()
-    fig1.add_trace(go.Bar(x=series_all.index, y=series_all.values, name='Monthly', marker_color='skyblue', hovertemplate='%{x|%Y-%m}: %{y:.2f} mm'))
-    fig1.add_trace(go.Scatter(x=rolling_all.index, y=rolling_all.values, mode='lines', name='12-mo rolling mean', line=dict(color='crimson', width=3)))
-    fig1.update_layout(title='Monthly Rainfall (mm)', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_max_all if y_max_all>0 else 1], gridcolor='LightGray'))
-    fig1.update_xaxes(dtick="M12", tickformat="%Y")
-    st.plotly_chart(fig1, use_container_width=True)
+        # EDA plot (interactive with Plotly)
+        series_all = monthly["rainfall"].clip(lower=0)
+        rolling_all = series_all.rolling(window=rolling_window, min_periods=1).mean()
+        y_max_all = max(series_all.max() if len(series_all)>0 else 0, rolling_all.max() if len(rolling_all)>0 else 0) * 1.15
+        fig1 = go.Figure()
+        fig1.add_trace(go.Bar(x=series_all.index, y=series_all.values, name='Monthly', marker_color='skyblue', hovertemplate='%{x|%Y-%m}: %{y:.2f} mm'))
+        fig1.add_trace(go.Scatter(x=rolling_all.index, y=rolling_all.values, mode='lines', name='12-mo rolling mean', line=dict(color='crimson', width=3)))
+        fig1.update_layout(title='Monthly Rainfall (mm)', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_max_all if y_max_all>0 else 1], gridcolor='LightGray'))
+        fig1.update_xaxes(dtick="M12", tickformat="%Y")
+        st.plotly_chart(fig1, use_container_width=True)
 
-    # download EDA figure
-    try:
-        eda_bytes, eda_mime = _fig_to_bytes(fig1)
-        st.download_button("Download Monthly chart", data=eda_bytes, file_name="monthly_rainfall.png", mime=eda_mime)
-    except Exception:
-        pass
-
-    # SARIMA Forecast
-    train = monthly.iloc[:-12]
-    test = monthly.iloc[-12:]
-    # If user requested auto-selection, run CV on the training window to pick the best model
-    if auto_select:
-        with st.spinner('Running CV to auto-select best model...'):
-            eval_models = list(model_choice)
-            # include AutoARIMA if available and enabled
-            if PMDARIMA_AVAILABLE and use_auto_arima and 'AutoARIMA' not in eval_models:
-                eval_models.append('AutoARIMA')
-            best_model, cv_res = select_best_model_via_cv(train['rainfall'].clip(lower=0), eval_models, cv_horizon, cv_folds)
-            st.info(f'Auto-selected model: **{best_model}** (based on CV RMSE)')
-            # show cv table
-            rows = []
-            for m, stats in cv_res.items():
-                rows.append({'model': m, 'rmse': stats.get('rmse'), 'mae': stats.get('mae')})
-            st.table(pd.DataFrame(rows).set_index('model'))
-            # enforce selected model for the remainder of the run
-            model_choice = [best_model]
-    # fit SARIMA (with optional caching or grid-search). Honor any user/session override from targeted CV.
-    # If a best order was saved into session_state['best_sarima_order'], prefer that.
-    # prefer an explicit per-run override, otherwise use a saved default override if present
-    sarima_override = None
-    if isinstance(st.session_state.get('best_sarima_order'), (list, tuple)):
-        sarima_override = st.session_state.get('best_sarima_order')
-    elif isinstance(st.session_state.get('best_sarima_order_default'), (list, tuple)):
-        sarima_override = st.session_state.get('best_sarima_order_default')
-    # fit SARIMA (with optional caching or grid-search)
-    # ensure `result` is always defined to avoid NameError in downstream logic
-    result = None
-    if sarima_override is not None:
-        # user requested a specific order from CV results
+        # download EDA figure
         try:
-            order_use, seasonal_use = sarima_override
-            result = fit_sarima_cached(train['rainfall'], order=tuple(order_use), seasonal_order=tuple(seasonal_use))
+            eda_bytes, eda_mime = _fig_to_bytes(fig1)
+            st.download_button("Download Monthly chart", data=eda_bytes, file_name="monthly_rainfall.png", mime=eda_mime)
         except Exception:
-            # fallback to default grid or default model
-            sarima_override = None
-            result = None
-    elif 'use_sarima_grid' in globals() and use_sarima_grid:
-        # run lightweight grid search
-        p_range = list(range(0, p_max+1))
-        q_range = list(range(0, q_max+1))
-        P_range = list(range(0, P_max+1))
-        best = sarima_grid_search(train['rainfall'], p_range=p_range, q_range=q_range, P_range=P_range, Q_range=(0,1), s=12)
-        if best is not None:
-            order, seasonal_order, res_model = best
-            result = res_model
-        else:
-            result = fit_sarima_cached(train["rainfall"], order=(1,1,1), seasonal_order=(1,1,1,12))
-    else:
-        # if no override and not using grid, use default SARIMA
-        if result is None:
-            result = fit_sarima_cached(train["rainfall"], order=(1,1,1), seasonal_order=(1,1,1,12))
-    forecast = result.get_forecast(steps=forecast_horizon)
-    pred_mean = forecast.predicted_mean.clip(lower=0)
-    conf_int = forecast.conf_int()
-    # ensure confidence interval lower bounds are non-negative for plotting
-    conf_int.iloc[:,0] = conf_int.iloc[:,0].clip(lower=0)
-    conf_int.iloc[:,1] = conf_int.iloc[:,1].clip(lower=0)
+            pass
 
-    # SARIMA Forecast (interactive Plotly)
-    train_vals = train["rainfall"].clip(lower=0)
-    test_vals = test["rainfall"].clip(lower=0)
-    y_top = max(train_vals.max() if len(train_vals)>0 else 0, test_vals.max() if len(test_vals)>0 else 0,
-                pred_mean.max() if len(pred_mean)>0 else 0, conf_int.iloc[:,1].max() if conf_int.shape[1]>1 else 0) * 1.15
-    fig2 = go.Figure()
-    fig2.add_trace(go.Scatter(x=train.index, y=train_vals, mode='lines', name='Train', line=dict(color='royalblue')))
-    fig2.add_trace(go.Scatter(x=test.index, y=test_vals, mode='lines+markers', name='Test', line=dict(color='orange')))
-    fig2.add_trace(go.Scatter(x=pred_mean.index, y=pred_mean.values, mode='lines+markers', name='SARIMA Forecast', line=dict(color='green')))
-    # Add CI as filled area (optional)
-    if show_ci:
-        ci_x = list(conf_int.index) + list(conf_int.index[::-1])
-        ci_y = list(conf_int.iloc[:,1].values) + list(conf_int.iloc[:,0].values[::-1])
-        # clip ci values to >=0
-        ci_y = [max(0, v) for v in ci_y]
-        fig2.add_trace(go.Scatter(x=ci_x, y=ci_y, fill='toself', fillcolor='rgba(144,238,144,0.3)', line=dict(color='rgba(255,255,255,0)'), hoverinfo='skip', showlegend=True, name='95% CI'))
-    # vertical test separator
-    if len(test.index)>0:
-        fig2.add_vline(x=test.index[0], line=dict(color='gray', dash='dash'), opacity=0.6)
-    fig2.update_layout(title='SARIMA Forecast vs Actuals', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_top if y_top>0 else 1], gridcolor='LightGray'))
-    fig2.update_xaxes(tickformat='%Y-%m')
-    st.plotly_chart(fig2, use_container_width=True)
-    # Download SARIMA figure and forecast CSV
-    try:
-        sar_bytes, sar_mime = _fig_to_bytes(fig2)
-        st.download_button("Download SARIMA chart", data=sar_bytes, file_name="sarima_forecast.png", mime=sar_mime)
-    except Exception:
-        pass
-    try:
-        fc_df = pd.DataFrame({'date': pred_mean.index, 'forecast': pred_mean.values})
-        csv = fc_df.to_csv(index=False).encode('utf-8')
-        st.download_button('Download SARIMA forecast CSV', data=csv, file_name='sarima_forecast.csv', mime='text/csv')
-    except Exception:
-        pass
-
-    # store forecast outputs in session for replay
-    try:
-        st.session_state['last_forecast'] = {
-            'monthly': monthly,
-            'train_index': train.index,
-            'test_index': test.index,
-            'train_vals': train["rainfall"].clip(lower=0),
-            'test_vals': test["rainfall"].clip(lower=0),
-            'pred_mean': pred_mean,
-            'conf_int': conf_int,
-            'fc_df': fc_df,
-            'seasonal_results': seasonal_results if 'seasonal_results' in locals() else None,
-            'prophet_pred': prophet_pred if 'prophet_pred' in locals() else None
-        }
-    except Exception:
-        pass
-
-    results = []
-    # Evaluate SARIMA
-    if "SARIMA" in model_choice:
-        sarima_pred = pred_mean
-        rmse_s = float(np.sqrt(np.mean((test["rainfall"] - sarima_pred) ** 2)))
-        mae_s = float(np.mean(np.abs(test["rainfall"] - sarima_pred)))
-        results.append({"model": "SARIMA", "rmse": rmse_s, "mae": mae_s})
-
-    # Prophet forecast
-    if "Prophet" in model_choice:
-        # Prepare data for Prophet
-        df_prop = train["rainfall"].reset_index().rename(columns={"date": "ds", "rainfall": "y"})
-        m = fit_prophet_cached(df_prop)
-        future = m.make_future_dataframe(periods=forecast_horizon, freq='M')
-        fcst = m.predict(future)
-        # align prophet predictions to test index (if overlap) and clip
-        prophet_pred = fcst.set_index('ds')['yhat'].reindex(test.index).clip(lower=0)
-        y_top_p = max(train["rainfall"].clip(lower=0).max() if len(train)>0 else 0, test["rainfall"].clip(lower=0).max() if len(test)>0 else 0,
-                      prophet_pred.max() if len(prophet_pred)>0 else 0) * 1.15
-        fig_p = go.Figure()
-        fig_p.add_trace(go.Scatter(x=train.index, y=train["rainfall"].clip(lower=0), mode='lines', name='Train', line=dict(color='royalblue')))
-        fig_p.add_trace(go.Scatter(x=test.index, y=test["rainfall"].clip(lower=0), mode='lines+markers', name='Test', line=dict(color='orange')))
-        fig_p.add_trace(go.Scatter(x=prophet_pred.index, y=prophet_pred.values, mode='lines+markers', name='Prophet Forecast', line=dict(color='purple')))
-        if len(test.index)>0:
-            fig_p.add_vline(x=test.index[0], line=dict(color='gray', dash='dash'), opacity=0.6)
-        fig_p.update_layout(title='Prophet Forecast vs Actuals', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_top_p if y_top_p>0 else 1], gridcolor='LightGray'))
-        fig_p.update_xaxes(tickformat='%Y-%m')
-        st.plotly_chart(fig_p, use_container_width=True)
-        rmse_p = float(np.sqrt(np.mean((test["rainfall"] - prophet_pred) ** 2)))
-        mae_p = float(np.mean(np.abs(test["rainfall"] - prophet_pred)))
-        results.append({"model": "Prophet", "rmse": rmse_p, "mae": mae_p})
-
-    if results:
-        res_df = pd.DataFrame(results).set_index('model')
-        st.subheader("Model comparison (lower is better)")
-        st.table(res_df)
-
-        # --- Seasonal forecasting (monsoon/summer/winter) ---
-        st.subheader("Seasonal forecasts")
-        seasons = {
-            'Monsoon (Jun-Sep)': [6,7,8,9],
-            'Summer (Mar-May)': [3,4,5],
-            'Winter (Dec-Feb)': [12,1,2]
-        }
-        seasonal_results = []
-        for sname, months in seasons.items():
-            # aggregate seasonal totals per year
-            s_df = monthly.copy()
-            s_df['month'] = s_df.index.month
-            filtered = s_df[s_df['month'].isin(months)]
-            s_series = filtered[col].groupby(filtered.index.year).sum()
-            if len(s_series) < 3:
-                # not enough history
-                seasonal_results.append({'season': sname, 'model': 'NA', 'forecast': None, 'rmse': None, 'mae': None})
-                continue
-
-            # prepare yearly index as datetime for prophet
-            s_index = pd.to_datetime(s_series.index.astype(str) + '-12-31')
-            s_series.index = s_index
-
-            # train/test split (last year as test)
-            train_s = s_series.iloc[:-1]
-            test_s = s_series.iloc[-1:]
-
-            # SARIMA on yearly series
+        # SARIMA Forecast
+        train = monthly.iloc[:-12]
+        test = monthly.iloc[-12:]
+        # If user requested auto-selection, run CV on the training window to pick the best model
+        if auto_select:
+            with st.spinner('Running CV to auto-select best model...'):
+                eval_models = list(model_choice)
+                # include AutoARIMA if available and enabled
+                if PMDARIMA_AVAILABLE and use_auto_arima and 'AutoARIMA' not in eval_models:
+                    eval_models.append('AutoARIMA')
+                best_model, cv_res = select_best_model_via_cv(train['rainfall'].clip(lower=0), eval_models, cv_horizon, cv_folds)
+                st.info(f'Auto-selected model: **{best_model}** (based on CV RMSE)')
+                # show cv table
+                rows = []
+                for m, stats in cv_res.items():
+                    rows.append({'model': m, 'rmse': stats.get('rmse'), 'mae': stats.get('mae')})
+                st.table(pd.DataFrame(rows).set_index('model'))
+                # enforce selected model for the remainder of the run
+                model_choice = [best_model]
+        # fit SARIMA (with optional caching or grid-search). Honor any user/session override from targeted CV.
+        # If a best order was saved into session_state['best_sarima_order'], prefer that.
+        # prefer an explicit per-run override, otherwise use a saved default override if present
+        sarima_override = None
+        if isinstance(st.session_state.get('best_sarima_order'), (list, tuple)):
+            sarima_override = st.session_state.get('best_sarima_order')
+        elif isinstance(st.session_state.get('best_sarima_order_default'), (list, tuple)):
+            sarima_override = st.session_state.get('best_sarima_order_default')
+        # fit SARIMA (with optional caching or grid-search)
+        # ensure `result` is always defined to avoid NameError in downstream logic
+        result = None
+        if sarima_override is not None:
+            # user requested a specific order from CV results
             try:
-                sar_model = sm.tsa.statespace.SARIMAX(train_s,
-                                                      order=(1,0,0),
-                                                      seasonal_order=(0,0,0,0),
-                                                      enforce_stationarity=False,
-                                                      enforce_invertibility=False)
-                sar_res = sar_model.fit(disp=False)
-                sar_fc = sar_res.get_forecast(steps=1).predicted_mean
-                sar_pred_val = float(sar_fc.iloc[0])
-                # compute metrics if test exists
-                rmse_s = float(np.sqrt(np.mean((test_s.values - sar_fc.values) ** 2))) if len(test_s)>0 else None
-                mae_s = float(np.mean(np.abs(test_s.values - sar_fc.values))) if len(test_s)>0 else None
+                order_use, seasonal_use = sarima_override
+                result = fit_sarima_cached(train['rainfall'], order=tuple(order_use), seasonal_order=tuple(seasonal_use))
             except Exception:
-                sar_pred_val = None
-                rmse_s = None
-                mae_s = None
+                # fallback to default grid or default model
+                sarima_override = None
+                result = None
+        elif 'use_sarima_grid' in globals() and use_sarima_grid:
+            # run lightweight grid search
+            p_range = list(range(0, p_max+1))
+            q_range = list(range(0, q_max+1))
+            P_range = list(range(0, P_max+1))
+            best = sarima_grid_search(train['rainfall'], p_range=p_range, q_range=q_range, P_range=P_range, Q_range=(0,1), s=12)
+            if best is not None:
+                order, seasonal_order, res_model = best
+                result = res_model
+            else:
+                result = fit_sarima_cached(train["rainfall"], order=(1,1,1), seasonal_order=(1,1,1,12))
+        else:
+            # if no override and not using grid, use default SARIMA
+            if result is None:
+                result = fit_sarima_cached(train["rainfall"], order=(1,1,1), seasonal_order=(1,1,1,12))
+        forecast = result.get_forecast(steps=forecast_horizon)
+        pred_mean = forecast.predicted_mean.clip(lower=0)
+        conf_int = forecast.conf_int()
+        # ensure confidence interval lower bounds are non-negative for plotting
+        conf_int.iloc[:,0] = conf_int.iloc[:,0].clip(lower=0)
+        conf_int.iloc[:,1] = conf_int.iloc[:,1].clip(lower=0)
 
-            seasonal_results.append({'season': sname, 'model': 'SARIMA', 'forecast': sar_pred_val, 'rmse': rmse_s, 'mae': mae_s})
+        # SARIMA Forecast (interactive Plotly)
+        train_vals = train["rainfall"].clip(lower=0)
+        test_vals = test["rainfall"].clip(lower=0)
+        y_top = max(train_vals.max() if len(train_vals)>0 else 0, test_vals.max() if len(test_vals)>0 else 0,
+                    pred_mean.max() if len(pred_mean)>0 else 0, conf_int.iloc[:,1].max() if conf_int.shape[1]>1 else 0) * 1.15
+        fig2 = go.Figure()
+        fig2.add_trace(go.Scatter(x=train.index, y=train_vals, mode='lines', name='Train', line=dict(color='royalblue')))
+        fig2.add_trace(go.Scatter(x=test.index, y=test_vals, mode='lines+markers', name='Test', line=dict(color='orange')))
+        fig2.add_trace(go.Scatter(x=pred_mean.index, y=pred_mean.values, mode='lines+markers', name='SARIMA Forecast', line=dict(color='green')))
+        # Add CI as filled area (optional)
+        if show_ci:
+            ci_x = list(conf_int.index) + list(conf_int.index[::-1])
+            ci_y = list(conf_int.iloc[:,1].values) + list(conf_int.iloc[:,0].values[::-1])
+            # clip ci values to >=0
+            ci_y = [max(0, v) for v in ci_y]
+            fig2.add_trace(go.Scatter(x=ci_x, y=ci_y, fill='toself', fillcolor='rgba(144,238,144,0.3)', line=dict(color='rgba(255,255,255,0)'), hoverinfo='skip', showlegend=True, name='95% CI'))
+        # vertical test separator
+        if len(test.index)>0:
+            fig2.add_vline(x=test.index[0], line=dict(color='gray', dash='dash'), opacity=0.6)
+        fig2.update_layout(title='SARIMA Forecast vs Actuals', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_top if y_top>0 else 1], gridcolor='LightGray'))
+        fig2.update_xaxes(tickformat='%Y-%m')
+        st.plotly_chart(fig2, use_container_width=True)
+        # Download SARIMA figure and forecast CSV
+        try:
+            sar_bytes, sar_mime = _fig_to_bytes(fig2)
+            st.download_button("Download SARIMA chart", data=sar_bytes, file_name="sarima_forecast.png", mime=sar_mime)
+        except Exception:
+            pass
+        try:
+            fc_df = pd.DataFrame({'date': pred_mean.index, 'forecast': pred_mean.values})
+            csv = fc_df.to_csv(index=False).encode('utf-8')
+            st.download_button('Download SARIMA forecast CSV', data=csv, file_name='sarima_forecast.csv', mime='text/csv')
+        except Exception:
+            pass
 
-            # Prophet on yearly series
-            try:
-                df_prop_s = train_s.reset_index().rename(columns={'index':'ds', 0:'y'})
-                df_prop_s.columns = ['ds','y']
-                m_s = Prophet()
-                m_s.fit(df_prop_s)
-                future_s = m_s.make_future_dataframe(periods=1, freq='Y')
-                fcst_s = m_s.predict(future_s)
-                prop_pred = fcst_s.set_index('ds')['yhat'].loc[future_s['ds'].iloc[-1]]
-                prop_pred_val = float(prop_pred)
-                # metrics
-                # align prophet prediction index with test_s index for metric
-                if len(test_s)>0:
-                    rmse_p = float(np.sqrt(np.mean((test_s.values - prop_pred_val) ** 2)))
-                    mae_p = float(np.mean(np.abs(test_s.values - prop_pred_val)))
-                else:
+        # store forecast outputs in session for replay
+        try:
+            st.session_state['last_forecast'] = {
+                'monthly': monthly,
+                'train_index': train.index,
+                'test_index': test.index,
+                'train_vals': train["rainfall"].clip(lower=0),
+                'test_vals': test["rainfall"].clip(lower=0),
+                'pred_mean': pred_mean,
+                'conf_int': conf_int,
+                'fc_df': fc_df,
+                'seasonal_results': seasonal_results if 'seasonal_results' in locals() else None,
+                'prophet_pred': prophet_pred if 'prophet_pred' in locals() else None
+            }
+        except Exception:
+            pass
+
+        results = []
+        # Evaluate SARIMA
+        if "SARIMA" in model_choice:
+            sarima_pred = pred_mean
+            rmse_s = float(np.sqrt(np.mean((test["rainfall"] - sarima_pred) ** 2)))
+            mae_s = float(np.mean(np.abs(test["rainfall"] - sarima_pred)))
+            results.append({"model": "SARIMA", "rmse": rmse_s, "mae": mae_s})
+
+        # Prophet forecast
+        if "Prophet" in model_choice:
+            # Prepare data for Prophet
+            df_prop = train["rainfall"].reset_index().rename(columns={"date": "ds", "rainfall": "y"})
+            m = fit_prophet_cached(df_prop)
+            future = m.make_future_dataframe(periods=forecast_horizon, freq='M')
+            fcst = m.predict(future)
+            # align prophet predictions to test index (if overlap) and clip
+            prophet_pred = fcst.set_index('ds')['yhat'].reindex(test.index).clip(lower=0)
+            y_top_p = max(train["rainfall"].clip(lower=0).max() if len(train)>0 else 0, test["rainfall"].clip(lower=0).max() if len(test)>0 else 0,
+                          prophet_pred.max() if len(prophet_pred)>0 else 0) * 1.15
+            fig_p = go.Figure()
+            fig_p.add_trace(go.Scatter(x=train.index, y=train["rainfall"].clip(lower=0), mode='lines', name='Train', line=dict(color='royalblue')))
+            fig_p.add_trace(go.Scatter(x=test.index, y=test["rainfall"].clip(lower=0), mode='lines+markers', name='Test', line=dict(color='orange')))
+            fig_p.add_trace(go.Scatter(x=prophet_pred.index, y=prophet_pred.values, mode='lines+markers', name='Prophet Forecast', line=dict(color='purple')))
+            if len(test.index)>0:
+                fig_p.add_vline(x=test.index[0], line=dict(color='gray', dash='dash'), opacity=0.6)
+            fig_p.update_layout(title='Prophet Forecast vs Actuals', xaxis_title='Date', yaxis_title='Rainfall (mm)', yaxis=dict(range=[0, y_top_p if y_top_p>0 else 1], gridcolor='LightGray'))
+            fig_p.update_xaxes(tickformat='%Y-%m')
+            st.plotly_chart(fig_p, use_container_width=True)
+            rmse_p = float(np.sqrt(np.mean((test["rainfall"] - prophet_pred) ** 2)))
+            mae_p = float(np.mean(np.abs(test["rainfall"] - prophet_pred)))
+            results.append({"model": "Prophet", "rmse": rmse_p, "mae": mae_p})
+
+        if results:
+            res_df = pd.DataFrame(results).set_index('model')
+            st.subheader("Model comparison (lower is better)")
+            st.table(res_df)
+
+            # --- ! NEW CHANGE: SAVE RESULTS TO SESSION STATE ! ---
+            st.session_state['pred_mean'] = pred_mean
+            st.session_state['conf_int'] = conf_int
+            st.session_state['season'] = season # Save the season selected in the sidebar
+            st.session_state['forecast_run_complete'] = True
+            # --- ! END OF NEW CHANGE ! ---
+
+            # --- Seasonal forecasting (monsoon/summer/winter) ---
+            st.subheader("Seasonal forecasts")
+            seasons = {
+                'Monsoon (Jun-Sep)': [6,7,8,9],
+                'Summer (Mar-May)': [3,4,5],
+                'Winter (Dec-Feb)': [12,1,2]
+            }
+            seasonal_results = []
+            for sname, months in seasons.items():
+                # aggregate seasonal totals per year
+                s_df = monthly.copy()
+                s_df['month'] = s_df.index.month
+                filtered = s_df[s_df['month'].isin(months)]
+                s_series = filtered[col].groupby(filtered.index.year).sum()
+                if len(s_series) < 3:
+                    # not enough history
+                    seasonal_results.append({'season': sname, 'model': 'NA', 'forecast': None, 'rmse': None, 'mae': None})
+                    continue
+
+                # prepare yearly index as datetime for prophet
+                s_index = pd.to_datetime(s_series.index.astype(str) + '-12-31')
+                s_series.index = s_index
+
+                # train/test split (last year as test)
+                train_s = s_series.iloc[:-1]
+                test_s = s_series.iloc[-1:]
+
+                # SARIMA on yearly series
+                try:
+                    sar_model = sm.tsa.statespace.SARIMAX(train_s,
+                                                          order=(1,0,0),
+                                                          seasonal_order=(0,0,0,0),
+                                                          enforce_stationarity=False,
+                                                          enforce_invertibility=False)
+                    sar_res = sar_model.fit(disp=False)
+                    sar_fc = sar_res.get_forecast(steps=1).predicted_mean
+                    sar_pred_val = float(sar_fc.iloc[0])
+                    # compute metrics if test exists
+                    rmse_s = float(np.sqrt(np.mean((test_s.values - sar_fc.values) ** 2))) if len(test_s)>0 else None
+                    mae_s = float(np.mean(np.abs(test_s.values - sar_fc.values))) if len(test_s)>0 else None
+                except Exception:
+                    sar_pred_val = None
+                    rmse_s = None
+                    mae_s = None
+
+                seasonal_results.append({'season': sname, 'model': 'SARIMA', 'forecast': sar_pred_val, 'rmse': rmse_s, 'mae': mae_s})
+
+                # Prophet on yearly series
+                try:
+                    df_prop_s = train_s.reset_index().rename(columns={'index':'ds', 0:'y'})
+                    df_prop_s.columns = ['ds','y']
+                    m_s = Prophet()
+                    m_s.fit(df_prop_s)
+                    future_s = m_s.make_future_dataframe(periods=1, freq='Y')
+                    fcst_s = m_s.predict(future_s)
+                    prop_pred = fcst_s.set_index('ds')['yhat'].loc[future_s['ds'].iloc[-1]]
+                    prop_pred_val = float(prop_pred)
+                    # metrics
+                    # align prophet prediction index with test_s index for metric
+                    if len(test_s)>0:
+                        rmse_p = float(np.sqrt(np.mean((test_s.values - prop_pred_val) ** 2)))
+                        mae_p = float(np.mean(np.abs(test_s.values - prop_pred_val)))
+                    else:
+                        rmse_p = None
+                        mae_p = None
+                except Exception:
+                    prop_pred_val = None
                     rmse_p = None
                     mae_p = None
-            except Exception:
-                prop_pred_val = None
-                rmse_p = None
-                mae_p = None
 
-            seasonal_results.append({'season': sname, 'model': 'Prophet', 'forecast': prop_pred_val, 'rmse': rmse_p, 'mae': mae_p})
+                seasonal_results.append({'season': sname, 'model': 'Prophet', 'forecast': prop_pred_val, 'rmse': rmse_p, 'mae': mae_p})
 
-        # show seasonal results table
-        sres_df = pd.DataFrame(seasonal_results)
-        st.table(sres_df)
-        # Download seasonal forecasts CSV
-        try:
-            s_csv = sres_df.to_csv(index=False).encode('utf-8')
-            st.download_button('Download seasonal forecasts CSV', data=s_csv, file_name='seasonal_forecasts.csv', mime='text/csv')
-        except Exception:
-            pass
-
-        # plot seasonal forecasts per model
-        try:
-            plot_df = sres_df.pivot(index='season', columns='model', values='forecast')
-            st.subheader('Seasonal forecast comparison (next year)')
-            st.bar_chart(plot_df.fillna(0))
-        except Exception:
-            pass
-
-        avg = monthly["rainfall"].mean()
-        future_sum = pred_mean.sum()
-        crop, crop_msg = recommend_crop(future_sum, season)
-        st.success(f"Crop Recommendation: {crop}")
-        st.info(crop_msg)
-        st.write(f"Average monthly rainfall: **{avg:.2f} mm**")
-        st.write(f"Forecasted total rainfall (next 12 months): **{future_sum:.2f} mm**")
-
-        month_crops_df = month_wise_crop_recommendation(pred_mean, season)
-        st.subheader("Month-wise Crop Recommendation")
-        st.dataframe(month_crops_df)
-
-        # Download report
-        report = f"Rainfall Prediction & Crop Recommendation\n"
-        report += f"Location: Latitude {lat}, Longitude {lon}\n"
-        report += f"Average monthly rainfall: {avg:.2f} mm\n"
-        report += f"Forecasted total rainfall (next 12 months): {future_sum:.2f} mm\n"
-        report += f"Crop Recommendation: {crop}\n{crop_msg}\n\n"
-        report += "Month-wise Crop Recommendation:\n"
-        for _, row in month_crops_df.iterrows():
-            report += f"{row['Month']}: {row['Recommended Crops']} (Predicted Rainfall: {row['Predicted Rainfall (mm)']:.2f} mm)\n"
-        st.download_button("Download Report", report, file_name="rainfall_report.txt")
-        # PDF report (images + summary) using reportlab when available
-        try:
-            images = []
-            # include SARIMA chart image
+            # show seasonal results table
+            sres_df = pd.DataFrame(seasonal_results)
+            st.table(sres_df)
+            # Download seasonal forecasts CSV
             try:
-                sar_bytes, sar_mime = _fig_to_bytes(fig2)
-                if sar_mime == 'image/png':
-                    images.append(sar_bytes)
+                s_csv = sres_df.to_csv(index=False).encode('utf-8')
+                st.download_button('Download seasonal forecasts CSV', data=s_csv, file_name='seasonal_forecasts.csv', mime='text/csv')
             except Exception:
                 pass
-            # include EDA chart image
+
+            # plot seasonal forecasts per model
             try:
-                eda_bytes, eda_mime = _fig_to_bytes(fig1)
-                if eda_mime == 'image/png':
-                    images.append(eda_bytes)
+                plot_df = sres_df.pivot(index='season', columns='model', values='forecast')
+                st.subheader('Seasonal forecast comparison (next year)')
+                st.bar_chart(plot_df.fillna(0))
             except Exception:
                 pass
-            pdf_bytes = generate_pdf_report(report, filename='rainfall_report.pdf', images=images)
-            # If reportlab not installed, generate_pdf_report returns plain bytes of text
-            mime = 'application/pdf' if REPORTLAB_AVAILABLE else 'text/plain'
-            st.download_button('Download PDF report', data=pdf_bytes, file_name='rainfall_report.pdf' if REPORTLAB_AVAILABLE else 'rainfall_report.txt', mime=mime)
-        except Exception:
-            pass
+
     else:
         st.info("Set location and season in the sidebar, then click 'Run Prediction'.")
 
