@@ -1006,7 +1006,81 @@ with tab_forecast:
     
     # --- THIS LINE WAS ALREADY HERE, BUT ADD THE "st.info" BENEATH IT ---
     run_clicked = st.button("Run Prediction")
-    st.info("This may take a moment. We're fetching data and training an AI model for your specific location.") # <-- ADD THIS
+    st.info("This may take a moment. We're fetching data and training an AI model for your specific location.") # <-- ADDED THIS
+
+    replay_clicked = st.button("Replay last forecast")
+
+    # --- (Your existing code for 'replay_clicked' and 'run_cv' stays here) ---
+    # ...
+    # ... (This assumes your replay_clicked and run_cv logic is here)
+    # ...
+
+    if run_clicked:
+        with st.spinner("Fetching and processing data..."):
+            today = end_date.strftime("%Y-%m-%d")
+            df = fetch_rainfall(lat=lat, lon=lon, start=start_date.strftime("%Y-%m-%d"), end=today)
+            df.to_csv("rainfall_data.csv")
+            monthly = preprocess("rainfall_data.csv")
+            # ... (Your existing 'compare' logic stays here) ...
+
+        # ... (Your existing EDA plot 'fig1' logic stays here) ...
+        # ... st.plotly_chart(fig1, use_container_width=True) ...
+
+        # SARIMA Forecast
+        train = monthly.iloc[:-12]
+        test = monthly.iloc[-12:]
+        
+        # ... (Your existing 'auto_select' logic stays here) ...
+        
+        # ... (Your existing 'sarima_override' logic stays here) ...
+        
+        # ... (Your existing SARIMA fitting logic stays here to define 'result') ...
+        
+        forecast = result.get_forecast(steps=forecast_horizon)
+        pred_mean = forecast.predicted_mean.clip(lower=0)
+        conf_int = forecast.conf_int()
+        conf_int.iloc[:,0] = conf_int.iloc[:,0].clip(lower=0)
+        conf_int.iloc[:,1] = conf_int.iloc[:,1].clip(lower=0)
+
+        # ... (Your existing 'fig2' SARIMA plot logic stays here) ...
+        # ... st.plotly_chart(fig2, use_container_width=True) ...
+        
+        # ... (Your existing 'st.session_state['last_forecast']' logic stays here) ...
+
+        results = []
+        # Evaluate SARIMA
+        if "SARIMA" in model_choice:
+            # ... (Your existing SARIMA evaluation logic) ...
+            results.append({"model": "SARIMA", "rmse": rmse_s, "mae": mae_s})
+
+        # Prophet forecast
+        if "Prophet" in model_choice:
+            # ... (Your existing Prophet logic, fig_p, and evaluation) ...
+            results.append({"model": "Prophet", "rmse": rmse_p, "mae": mae_p})
+
+        if results:
+            res_df = pd.DataFrame(results).set_index('model')
+            st.subheader("Model comparison (lower is better)")
+            st.table(res_df)
+
+            # --- ! NEW CHANGE: SAVE RESULTS TO SESSION STATE ! ---
+            st.session_state['pred_mean'] = pred_mean
+            st.session_state['conf_int'] = conf_int
+            st.session_state['season'] = season # Save the season selected in the sidebar
+            st.session_state['forecast_run_complete'] = True
+            # --- ! END OF NEW CHANGE ! ---
+
+        # ... (Your existing 'seasonal_results' logic can stay here if you want it) ...
+        # ... (e.g., st.subheader("Seasonal forecasts"), st.table(sres_df), etc.) ...
+        
+        # --- ! CHANGE: DELETE THE OLD RECOMMENDATION BLOCK ! ---
+        # (The code that started with 'avg = monthly["rainfall"].mean()'
+        # and showed 'st.success(f"Crop Recommendation: {crop}")'
+        # and 'st.dataframe(month_crops_df)' should be DELETED from here.)
+        # --- ! END OF DELETION ! ---
+
+    else:
+        st.info("Set location and season in the sidebar, then click 'Run Prediction'.")
 
     # --- LEAVE THE REST OF THE TAB (replay_clicked, etc.) AS IT IS ---
     # Optional SARIMA grid-search (no extra dependencies)
