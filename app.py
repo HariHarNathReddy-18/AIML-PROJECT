@@ -1008,7 +1008,6 @@ with tab_forecast:
     run_clicked = st.button("Run Prediction")
     st.info("This may take a moment. We're fetching data and training an AI model for your specific location.") # <-- ADDED THIS
 
-    replay_clicked = st.button("Replay last forecast")
 
     # --- (Your existing code for 'replay_clicked' and 'run_cv' stays here) ---
     # ...
