@@ -1022,7 +1022,7 @@ with tab_forecast:
     cv_folds = st.number_input('CV folds', min_value=1, max_value=6, value=3)
     run_cv = st.button('Run CV & Compare Models')
 
-    run_clicked = st.button("Run Prediction")
+    
     replay_clicked = st.button("Replay last forecast")
 
     # Shortcut: load targeted SARIMA CV results (two-stage fast run) and allow user to apply best order
