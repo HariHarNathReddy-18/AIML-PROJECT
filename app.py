@@ -130,6 +130,7 @@ st.title("Rainfall Prediction & Crop Recommendation 🌧️🌾")
 st.sidebar.header("Data & Location")
 lat = st.sidebar.number_input("Latitude", value=17.3850, format="%.4f")
 lon = st.sidebar.number_input("Longitude", value=78.4867, format="%.4f")
+st.sidebar.caption("Tip: Find this on Google Maps (right-click on a location).")
 city = st.sidebar.text_input("City (optional)", value="")
 # Multi-location compare inputs
 compare = st.sidebar.checkbox("Compare with another location")
@@ -143,7 +144,9 @@ end_date = st.sidebar.date_input("End date", value=datetime.date.today())
 
 # Cropping season
 season = st.sidebar.selectbox("Cropping Season", ["Kharif", "Rabi", "None"])
+st.sidebar.caption("This helps filter the crop database for relevant results.")
 season = None if season == "None" else season
+
 
 # Additional controls for forecasts & visuals
 forecast_horizon = st.sidebar.slider("Forecast horizon (months)", min_value=3, max_value=60, value=12, step=1)
@@ -529,11 +532,24 @@ def evaluate_models_cv(series: pd.Series, horizon: int = 3, n_splits: int = 2, m
 # Main tabs
 tab_home, tab_analysis, tab_forecast, tab_crop, tab_alerts = st.tabs(["Home", "Rainfall Analysis", "Forecast", "Crop Recommendation", "Alerts"])
 
-with tab_home:
-    st.header("Overview")
-    st.write("This dashboard lets you analyze rainfall for any location. Use the sidebar to change location, date range and season.")
-    st.write("Tip: enter a city name to remind yourself which location you selected.")
+# --- 2. REPLACE THIS ENTIRE SECTION (starts around line 559) ---
 
+with tab_home:
+    st.header("Welcome to the Rainfall & Crop Advisor! 🌧️🌾")
+    st.markdown("Get an AI-powered rainfall forecast and crop recommendations in 3 simple steps.")
+    
+    st.subheader("Step 1: Set Your Location")
+    st.markdown("Use the **sidebar on the left** to enter the **Latitude** and **Longitude** for your farm or area of interest.")
+    
+    st.subheader("Step 2: Run the Forecast")
+    st.markdown("Go to the **'Forecast'** tab and click the **'Run Prediction'** button. This will train our AI models on historical data for your location.")
+    
+    st.subheader("Step 3: Get Your Recommendations")
+    st.markdown("Once the forecast is complete, go to the **'Crop Recommendation'** tab to see which crops are best suited for the predicted rainfall, month by month.")
+    
+    st.info("You can also explore the **'Rainfall Analysis'** tab to see the historical rainfall patterns for your location.")
+    
+# --- END OF HOME TAB REPLACEMENT ---
 with tab_analysis:
     st.header("Rainfall Analysis")
     st.write("Use this tab to visualize monthly and yearly rainfall summaries.")
@@ -947,20 +963,52 @@ with tab_analysis:
 
 with tab_forecast:
     st.header("Forecast")
-    # Model selection
-    model_choice = st.multiselect("Select model(s) to run", options=["SARIMA", "Prophet"], default=["SARIMA"])
-    auto_select = st.checkbox('Auto-select best model via CV (uses rolling-origin CV)', value=False)
-    # Auto ARIMA option (uses pmdarima if installed)
-    use_auto_arima = False
-    if PMDARIMA_AVAILABLE:
-        use_auto_arima = st.checkbox('Enable Auto-ARIMA (pmdarima)', value=False)
-        if use_auto_arima:
-            # allow user to include AutoARIMA in model choices
-            if 'AutoARIMA' not in model_choice:
-                model_choice.append('AutoARIMA')
-    else:
-        st.caption('Auto-ARIMA not available (install pmdarima to enable).')
 
+    # --- MOVED ALL THESE CONTROLS INTO THE 'if advanced:' BLOCK ---
+    if advanced:
+        st.subheader("Advanced Model Selection")
+        # Model selection
+        model_choice = st.multiselect("Select model(s) to run", options=["SARIMA", "Prophet"], default=["SARIMA"])
+        auto_select = st.checkbox('Auto-select best model via CV (uses rolling-origin CV)', value=False)
+        
+        # Auto ARIMA option
+        use_auto_arima = False
+        if PMDARIMA_AVAILABLE:
+            use_auto_arima = st.checkbox('Enable Auto-ARIMA (pmdarima)', value=False)
+            if use_auto_arima and 'AutoARIMA' not in model_choice:
+                model_choice.append('AutoARIMA')
+        else:
+            st.caption('Auto-ARIMA not available (install pmdarima to enable).')
+
+        # Optional SARIMA grid-search
+        use_sarima_grid = st.checkbox('Use SARIMA grid-search (no pmdarima required)', value=False)
+        if use_sarima_grid:
+            p_max = st.slider('Max p', min_value=0, max_value=3, value=2)
+            q_max = st.slider('Max q', min_value=0, max_value=3, value=2)
+            P_max = st.slider('Max P (seasonal)', min_value=0, max_value=2, value=1)
+
+        # Cross-validation controls
+        st.markdown('**Model cross-validation (rolling-origin)**')
+        cv_horizon = st.number_input('CV horizon (months per fold)', min_value=1, max_value=24, value=3)
+        cv_folds = st.number_input('CV folds', min_value=1, max_value=6, value=3)
+        run_cv = st.button('Run CV & Compare Models')
+        st.markdown("---") # Add a separator
+        
+    else:
+        # --- SET DEFAULTS SILENTLY FOR A FRESHER ---
+        model_choice = ["SARIMA"]
+        auto_select = False # Keep it simple, just run the default
+        use_auto_arima = False
+        use_sarima_grid = False
+        cv_horizon = 3
+        cv_folds = 3
+        run_cv = False
+    
+    # --- THIS LINE WAS ALREADY HERE, BUT ADD THE "st.info" BENEATH IT ---
+    run_clicked = st.button("Run Prediction")
+    st.info("This may take a moment. We're fetching data and training an AI model for your specific location.") # <-- ADD THIS
+
+    # --- LEAVE THE REST OF THE TAB (replay_clicked, etc.) AS IT IS ---
     # Optional SARIMA grid-search (no extra dependencies)
     use_sarima_grid = st.checkbox('Use SARIMA grid-search (no pmdarima required)', value=False)
     if use_sarima_grid:
